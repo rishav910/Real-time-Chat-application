@@ -7,7 +7,7 @@ body {
     min-height: 100vh;
     margin: 0;
     padding: 0;
-    background-image: url('background3.png');
+    background-image: url('images/background3.png');
     background-size: cover;
     background-repeat: no-repeat;
     background-attachment: fixed;
@@ -52,7 +52,7 @@ h1 {
     margin-bottom: 10px;
     display: flex;
     flex-direction: column;
-    background-image: url('chat-background4.jpg');
+    background-image: url('images/chat-background4.jpg');
     background-size: cover;
     background-repeat: repeat;
     background-position: center center;
