@@ -9,9 +9,14 @@ Deployed over - https://real-time-chat-application-frontend-zxli.onrender.com/ch
 - WebSocket Communication: Utilizes Spring Boot's WebSocket capabilities.
 - SockJS Fallback: Ensures compatibility across various browsers and network environments.
 - User-friendly Interface: Simple and clean chat interface with responsive design.
-- Separated Frontend & Backend: Clear architectural separation for independent development and deployment.
 
-# Technologies Used in Backend:
+# Best Usage
+
+- Share the chat application link with your friends.
+- Ask them to add their names, type a message and send the message.
+- Everyone else having the chat opened up will be able to see that message in real-time (without delay).
+
+# Technologies Used in Backend
 
 - Spring Boot: Framework for building robust, production-ready Spring applications.
 - Spring WebSocket: Provides WebSocket and SockJS support.
@@ -19,20 +24,13 @@ Deployed over - https://real-time-chat-application-frontend-zxli.onrender.com/ch
 - Java 21: Programming language version.
 - Docker: For containerizing the backend application for consistent deployment.
 
-# Technologies Used in Frontend:
+# Technologies Used in Frontend
 
 - HTML5: Structure of the web page.
 - CSS3: Styling and layout (custom styles and Bootstrap 5).
 - JavaScript: Client-side logic for connecting to WebSockets and handling UI interactions.
 - SockJS Client: JavaScript library for WebSocket emulation.
 - STOMP.js: JavaScript library for STOMP messaging over WebSockets.
-
-# Usage
-
-1. Open the deployed frontend URL in your browser (e.g., https://your-frontend-name.onrender.com/).
-2. Enter your name in the "Your name..." field.
-3. Type a message in the "Type a message..." field and press Enter or click "Send".
-4. Messages will appear in real-time in the chat window.
 
 # Future Enhancements
 
