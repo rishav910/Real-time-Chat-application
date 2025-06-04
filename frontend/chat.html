@@ -28,7 +28,8 @@
 </div>
 </body>
 <script>
-    let socket = new SockJS('/chat');
+    // SockJS is linked to backend server '/chat' endpoint
+    let socket = new SockJS('https://real-time-chat-application-3njs.onrender.com/chat');
     let stompClient = new Stomp.over(socket);
     function setConnected(connected) {
         document.getElementById('sendMessage').disabled = !connected;
