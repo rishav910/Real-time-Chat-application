@@ -19,7 +19,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // SockJS is used by clients who don't support Web Socket
         String origin = "http://localhost:" + String.valueOf(port);
         registry.addEndpoint("/chat")
-                .setAllowedOrigins(origin)
+                .setAllowedOrigins("https://real-time-chat-application-frontend-zxli.onrender.com", origin)
                 .withSockJS();
     }
 
