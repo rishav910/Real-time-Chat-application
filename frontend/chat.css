@@ -1,0 +1,154 @@
+html {
+    height: 100%;
+    overflow-y: hidden;
+}
+
+body {
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    background-image: url('background3.png');
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    background-position: center center;
+    color: #333;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    justify-content: center;
+    overflow-y: auto;
+}
+
+.container {
+    max-width: 800px;
+    margin-top: 7vh;
+    margin-bottom: 7vh;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-radius: 15px;
+    background-color: #e6e6e6;
+    padding: 30px;
+    height: 90vh; /* Fixed height for the container, takes 90% of height */
+    overflow-y: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+h1 {
+    color: #333;
+    margin-top: 0;
+    margin-bottom: 20px;
+    font-weight: 700;
+}
+
+#chat {
+    height: calc(100% - 220px); /* Adjusts #chat height based on container and other elements */
+    overflow-y: auto; /* Makes chat messages scroll within #chat */
+    word-wrap: break-word;
+    min-height: 150px;
+    background-color: #e9ecef;
+    border: 1px solid #dee2e6;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    background-image: url('chat-background4.jpg');
+    background-size: cover;
+    background-repeat: repeat;
+    background-position: center center;
+}
+
+.message-container {
+    display: flex;
+    margin-bottom: 10px;
+    align-items: flex-end;
+}
+
+.message-bubble {
+    max-width: 75%;
+    padding: 10px 15px;
+    border-radius: 18px;
+    word-wrap: break-word;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.08);
+}
+
+.message-bubble.sent {
+    background-color: #007bff;
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+    margin-left: auto;
+}
+
+.message-bubble.received {
+    background-color: #f8f9fa;
+    color: #333;
+    border: 1px solid #ced4da;
+    border-bottom-left-radius: 2px;
+    margin-right: auto;
+}
+
+.message-sender {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-bottom: 3px;
+    font-weight: 500;
+}
+
+.message-bubble.sent .message-sender {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.input-group:not(:last-child) {
+    margin-bottom: 5px;
+}
+
+.input-group {
+    margin-top: 0;
+    flex-shrink: 0;
+}
+
+.input-group .form-control {
+    border-radius: 0.75rem;
+    padding: 12px 18px;
+    font-size: 1rem;
+    border: 1px solid #ced4da;
+    transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.input-group .form-control:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.25rem rgba(0, 123, 255, 0.25);
+}
+
+#sendMessage {
+    border-top-right-radius: 0.75rem;
+    border-bottom-right-radius: 0.75rem;
+    padding: 12px 25px;
+    font-size: 1rem;
+    font-weight: 600;
+    background-color: #17a2b8;
+    border-color: #17a2b8;
+    transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+#sendMessage:hover {
+    background-color: #138496;
+    border-color: #138496;
+}
+
+#senderInput {
+    border-radius: 0.75rem;
+}
+
+#messageInput {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+#input-group-append {
+    margin-left: 10px;
+    flex-shrink: 0;
+}
