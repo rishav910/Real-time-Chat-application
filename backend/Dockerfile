@@ -26,8 +26,11 @@ RUN ./mvnw clean install -DskipTests
 FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
+RUN groupadd --system spring && useradd --system --gid spring --home-dir /app spring
 
 COPY --from=builder /app/target/*.jar app.jar
+RUN chown -R spring:spring /app
+USER spring
 
 EXPOSE 8080
 
