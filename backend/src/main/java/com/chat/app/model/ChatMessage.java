@@ -36,6 +36,14 @@ public class ChatMessage {
     @Size(max = 120, message = "Attachment name is too long")
     private String attachmentName;
 
+    @Pattern(regexp = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", message = "Reply target is invalid")
+    private String replyToMessageId;
+
+    private String replyToSender;
+
+    @Size(max = 240, message = "Reply preview is too long")
+    private String replyToContent;
+
     @NotBlank(message = "A channel is required")
     @Pattern(regexp = "general|random|introductions", message = "Unknown channel")
     private String room;

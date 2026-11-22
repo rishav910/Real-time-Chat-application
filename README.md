@@ -18,6 +18,8 @@ The frontend connects to the backend URL configured in `frontend/chat.js`. If ei
 - Share JPEG, PNG, and GIF images, or record and preview voice messages before sending. Pending recordings can be deleted.
 - Edit and delete your sent messages. Edits are marked, and deletions appear as an italic notice to other participants.
 - View read receipts for messages while participants are connected.
+- See who is typing in the current channel; typing status clears when they pause, switch channels, or disconnect.
+- Reply to another participant's message with an in-context quote that links back to the original message.
 - Light and dark themes, emoji picker, responsive mobile layout, and per-channel empty state.
 - Server-side validation and rate limiting, attachment size and image dimension limits, exact-origin CORS, browser and server security headers, and a non-root backend container.
 

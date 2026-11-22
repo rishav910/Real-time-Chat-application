@@ -16,6 +16,7 @@
     const sendLabel = document.getElementById('sendLabel');
     const status = document.getElementById('connectionStatus');
     const statusDot = document.getElementById('statusDot');
+    const typingIndicator = document.getElementById('typingIndicator');
     const error = document.getElementById('errorMessage');
     const currentName = document.getElementById('currentName');
     const channelTitle = document.querySelector('.header-room h1');
@@ -33,6 +34,10 @@
     const voicePreviewPlayer = document.getElementById('voicePreviewPlayer');
     const voicePreviewDuration = document.getElementById('voicePreviewDuration');
     const discardVoiceButton = document.getElementById('discardVoice');
+    const replyPreview = document.getElementById('replyPreview');
+    const replyPreviewName = document.getElementById('replyPreviewName');
+    const replyPreviewText = document.getElementById('replyPreviewText');
+    const cancelReplyButton = document.getElementById('cancelReply');
     const attachmentStatus = document.getElementById('attachmentStatus');
     const editDialog = document.getElementById('editDialog');
     const editForm = document.getElementById('editForm');
@@ -42,6 +47,7 @@
     const guestId = window.crypto?.randomUUID?.() || `guest-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channels = channelButtons.map(button => button.dataset.channel);
     const messagesByChannel = new Map(channels.map(channel => [channel, []]));
+    const typingPeopleByChannel = new Map(channels.map(channel => [channel, []]));
     const pendingSeenByMessage = new Map();
     const seenRequestsSent = new Set();
     let displayName = '';
@@ -65,6 +71,10 @@
     let pendingVoiceUrl = null;
     let seenScanScheduled = false;
     let messageBeingEdited = null;
+    let replyTarget = null;
+    let typingStopTimer = null;
+    let localTypingRoom = null;
+    let lastTypingSentAt = 0;
     const pendingAttachments = [];
     const emojiOptions = [
         ['😀', 'Grinning face'], ['😂', 'Face with tears of joy'], ['😊', 'Smiling face'], ['😍', 'Heart eyes'],
@@ -258,12 +268,13 @@
         }
     }
 
-    function sendAttachmentMessage(upload, content = '', room = currentChannel) {
+    function sendAttachmentMessage(upload, content = '', room = currentChannel, reply = null) {
         pendingAttachments.push({
             clientId: guestId,
             sender: displayName,
             content,
             room,
+            replyToMessageId: reply?.messageId || null,
             attachmentUrl: upload.url,
             attachmentType: upload.contentType,
             attachmentName: upload.originalName
@@ -300,6 +311,7 @@
 
         uploadInProgress = true;
         const room = currentChannel;
+        const replyForUpload = replyTarget;
         updateComposer();
         showError('');
         attachmentStatus.textContent = isImage ? 'Uploading image…' : 'Uploading voice message…';
@@ -311,7 +323,8 @@
             const response = await fetch(`${backendUrl}/api/uploads`, { method: 'POST', body: data });
             const result = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(result.detail || result.message || 'The attachment could not be uploaded.');
-            sendAttachmentMessage(result, messageContent, room);
+            sendAttachmentMessage(result, messageContent, room, replyForUpload);
+            if (replyTarget === replyForUpload) clearReplyTarget();
             uploaded = true;
             if (pendingAttachments.length) {
                 attachmentStatus.textContent = 'Attachment ready. Sending when connected…';
@@ -336,11 +349,15 @@
 
     function markDisconnected(message = 'Connection to the chat server was lost.') {
         if (intentionalClose || (!connected && !connecting)) return;
+        stopTyping();
         connected = false;
         connecting = false;
         subscriptions = [];
         updateComposer();
         setStatus('Not connected', 'error');
+        typingPeopleByChannel.forEach((_, room) => typingPeopleByChannel.set(room, []));
+        typingIndicator.hidden = true;
+        typingIndicator.textContent = '';
         showError(message);
         scheduleReconnect();
     }
@@ -349,6 +366,42 @@
         messageStream.querySelectorAll('.message-row').forEach(row => row.remove());
         chat.classList.remove('has-messages');
         chat.scrollTop = 0;
+    }
+
+    function sendTypingState(room, typing) {
+        if (!connected || !client || !room) return;
+        try {
+            client.send('/app/typing', {}, JSON.stringify({ room, typing }));
+        } catch { /* Disconnect cleanup removes server-side typing state. */ }
+    }
+
+    function stopTyping(room = localTypingRoom) {
+        clearTimeout(typingStopTimer);
+        typingStopTimer = null;
+        if (!room || localTypingRoom !== room) return;
+        localTypingRoom = null;
+        lastTypingSentAt = 0;
+        sendTypingState(room, false);
+    }
+
+    function noteTyping() {
+        if (!connected || !client) return;
+        const room = currentChannel;
+        if (!messageInput.value.trim()) {
+            stopTyping(room);
+            return;
+        }
+        if (localTypingRoom && localTypingRoom !== room) stopTyping(localTypingRoom);
+        if (localTypingRoom !== room) {
+            localTypingRoom = room;
+            sendTypingState(room, true);
+            lastTypingSentAt = Date.now();
+        } else if (Date.now() - lastTypingSentAt >= 450) {
+            sendTypingState(room, true);
+            lastTypingSentAt = Date.now();
+        }
+        clearTimeout(typingStopTimer);
+        typingStopTimer = setTimeout(() => stopTyping(room), 2600);
     }
 
     function renderChannelHistory() {
@@ -365,6 +418,10 @@
         if (!message) return;
         if (message.type === 'seen') {
             receiveSeenUpdate(message);
+            return;
+        }
+        if (message.type === 'typing') {
+            renderTypingUpdate(message);
             return;
         }
         const hasAttachment = typeof message.attachmentUrl === 'string' && typeof message.attachmentType === 'string';
@@ -421,6 +478,30 @@
         }
     }
 
+    function renderTypingUpdate(update) {
+        if (!typingPeopleByChannel.has(update.room) || !Array.isArray(update.people)) return;
+        typingPeopleByChannel.set(update.room, update.people);
+        if (update.room !== currentChannel) return;
+        const names = [...new Map(update.people
+            .filter(person => person && typeof person.clientId === 'string' && typeof person.name === 'string'
+                && person.clientId !== guestId && person.name.trim())
+            .map(person => [person.name.trim().toLowerCase(), person.name.trim()])).values()];
+        if (!names.length) {
+            typingIndicator.hidden = true;
+            typingIndicator.textContent = '';
+            return;
+        }
+        let message;
+        if (names.length === 1) message = `${names[0]} is typing`;
+        else if (names.length === 2) message = `${names[0]} and ${names[1]} are typing`;
+        else {
+            const others = names.length - 2;
+            message = `${names[0]}, ${names[1]} and ${others} ${others === 1 ? 'other' : 'others'} are typing`;
+        }
+        typingIndicator.textContent = message;
+        typingIndicator.hidden = false;
+    }
+
     function receiveSeenUpdate(update) {
         if (!messagesByChannel.has(update.room) || typeof update.messageId !== 'string' || !Array.isArray(update.seenBy)) return;
         const channelMessages = messagesByChannel.get(update.room);
@@ -429,7 +510,8 @@
             pendingSeenByMessage.set(update.messageId, update.seenBy);
             return;
         }
-        existing.seenBy = update.seenBy;
+        existing.seenBy = update.seenBy.filter(name => typeof name === 'string'
+            && name.trim().toLowerCase() !== existing.sender?.trim().toLowerCase());
         if (update.room === currentChannel) {
             const row = [...messageStream.querySelectorAll('.message-row')]
                 .find(item => item.dataset.messageId === update.messageId);
@@ -463,10 +545,16 @@
     function subscribeToChannels() {
         if (!connected || !client) return;
         subscriptions.forEach(subscription => subscription.unsubscribe());
-        subscriptions = channels.map(channel => client.subscribe(`/topic/rooms/${channel}`, frame => {
-            try { receiveMessage(JSON.parse(frame.body)); }
-            catch { showError('A message could not be displayed.'); }
-        }));
+        subscriptions = channels.flatMap(channel => [
+            client.subscribe(`/topic/rooms/${channel}`, frame => {
+                try { receiveMessage(JSON.parse(frame.body)); }
+                catch { showError('A message could not be displayed.'); }
+            }),
+            client.subscribe(`/topic/typing/${channel}`, frame => {
+                try { renderTypingUpdate(JSON.parse(frame.body)); }
+                catch { /* Ignore malformed typing updates. */ }
+            })
+        ]);
     }
 
     function connect() {
@@ -497,13 +585,55 @@
             setStatus('Connected', 'connected');
             updateComposer();
             seenRequestsSent.clear();
+            subscribeToChannels();
             try {
                 client.send('/app/join', {}, JSON.stringify({ clientId: guestId, sender: displayName }));
             } catch { /* The next reconnect will register the session again. */ }
-            subscribeToChannels();
             flushPendingAttachments();
             scheduleMarkVisibleMessagesSeen();
         }, () => markDisconnected('Could not connect to the chat server. Retrying…'));
+    }
+
+    function getReplyExcerpt(message) {
+        if (message.deleted) return 'This message was deleted';
+        if (message.content?.trim()) return message.content.trim().slice(0, 180);
+        if (message.attachmentType?.startsWith('image/')) return 'Photo';
+        if (message.attachmentType?.startsWith('audio/')) return 'Voice message';
+        return 'Message';
+    }
+
+    function selectReplyTarget(message) {
+        if (!message.messageId || message.clientId === guestId || message.deleted) return;
+        replyTarget = {
+            messageId: message.messageId,
+            room: message.room,
+            sender: message.sender,
+            excerpt: getReplyExcerpt(message)
+        };
+        replyPreviewName.textContent = message.sender;
+        replyPreviewText.textContent = replyTarget.excerpt;
+        replyPreview.hidden = false;
+        messageInput.focus();
+    }
+
+    function clearReplyTarget() {
+        replyTarget = null;
+        replyPreview.hidden = true;
+        replyPreviewName.textContent = '';
+        replyPreviewText.textContent = '';
+    }
+
+    function scrollToRepliedMessage(room, messageId) {
+        if (!room || !messageId) return;
+        if (room !== currentChannel) selectChannel(room);
+        requestAnimationFrame(() => {
+            const row = [...messageStream.querySelectorAll('.message-row[data-message-id]')]
+                .find(item => item.dataset.messageId === messageId);
+            if (!row) return;
+            row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            row.classList.add('is-highlighted');
+            setTimeout(() => row.classList.remove('is-highlighted'), 1300);
+        });
     }
 
     function renderMessage(message, append = true) {
@@ -520,6 +650,8 @@
         content.className = 'message-content';
         const body = document.createElement('div');
         body.className = 'message-body';
+        const payload = document.createElement('div');
+        payload.className = 'message-payload';
         const meta = document.createElement('div');
         meta.className = 'message-meta';
         const sender = document.createElement('strong');
@@ -535,16 +667,29 @@
             editedLabel.textContent = 'edited';
             meta.append(editedLabel);
         }
+        if (message.replyToMessageId && message.replyToSender) {
+            const replyContext = document.createElement('button');
+            replyContext.type = 'button';
+            replyContext.className = 'message-reply-context';
+            replyContext.setAttribute('aria-label', `Reply to ${message.replyToSender}: ${message.replyToContent || 'Message'}`);
+            const replyName = document.createElement('strong');
+            replyName.textContent = message.replyToSender;
+            const replyExcerpt = document.createElement('span');
+            replyExcerpt.textContent = message.replyToContent || 'Message';
+            replyContext.append(replyName, replyExcerpt);
+            replyContext.addEventListener('click', () => scrollToRepliedMessage(message.room, message.replyToMessageId));
+            payload.append(replyContext);
+        }
         if (message.deleted) {
             const deletedNotice = document.createElement('em');
             deletedNotice.className = 'message-deleted';
             deletedNotice.textContent = 'This message was deleted';
-            body.append(deletedNotice);
+            payload.append(deletedNotice);
         } else if (message.content?.trim()) {
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
             bubble.textContent = message.content;
-            body.append(bubble);
+            payload.append(bubble);
         }
         if (!message.deleted && typeof message.attachmentUrl === 'string' && message.attachmentUrl.startsWith('/api/uploads/')) {
             const source = new URL(message.attachmentUrl, `${backendUrl}/`).href;
@@ -554,7 +699,7 @@
                 image.src = source;
                 image.alt = message.attachmentName || `Image shared by ${message.sender}`;
                 image.loading = 'lazy';
-                body.append(image);
+                payload.append(image);
             } else if (message.attachmentType?.startsWith('audio/')) {
                 const audio = document.createElement('audio');
                 audio.className = 'message-audio';
@@ -562,14 +707,26 @@
                 audio.preload = 'metadata';
                 audio.src = source;
                 audio.setAttribute('aria-label', `Voice message from ${message.sender}`);
-                body.append(audio);
+                payload.append(audio);
             }
         }
+        body.append(payload);
         content.append(meta, body);
-        if (own && !message.deleted && message.seenBy?.length) {
+        if (!own && !message.deleted && message.messageId) {
+            const replyButton = document.createElement('button');
+            replyButton.type = 'button';
+            replyButton.className = 'message-reply-button';
+            replyButton.textContent = '↩ Reply';
+            replyButton.setAttribute('aria-label', `Reply to ${message.sender}`);
+            replyButton.addEventListener('click', () => selectReplyTarget(message));
+            content.append(replyButton);
+        }
+        const otherReaders = (message.seenBy || []).filter(name => typeof name === 'string'
+            && name.trim().toLowerCase() !== message.sender?.trim().toLowerCase());
+        if (own && !message.deleted && otherReaders.length) {
             const seenBy = document.createElement('span');
             seenBy.className = 'seen-by';
-            seenBy.textContent = `Seen by ${message.seenBy.join(', ')}`;
+            seenBy.textContent = `Seen by ${otherReaders.join(', ')}`;
             content.append(seenBy);
         }
         if (own && !message.deleted && message.messageId) {
@@ -674,6 +831,7 @@
         event.preventDefault();
         const content = messageInput.value.trim();
         if (!connected || !client || !displayName) return;
+        stopTyping(currentChannel);
         if (pendingVoiceBlob) {
             const blob = pendingVoiceBlob;
             const extension = blob.type.startsWith('audio/mp4') ? 'm4a' : blob.type.startsWith('audio/ogg') ? 'ogg' : 'webm';
@@ -691,7 +849,14 @@
         }
         if (!content) return;
         try {
-            client.send('/app/sendMessage', {}, JSON.stringify({ clientId: guestId, sender: displayName, content, room: currentChannel }));
+            client.send('/app/sendMessage', {}, JSON.stringify({
+                clientId: guestId,
+                sender: displayName,
+                content,
+                room: currentChannel,
+                replyToMessageId: replyTarget?.messageId || null
+            }));
+            clearReplyTarget();
             messageInput.value = '';
             resizeInput();
             updateComposer();
@@ -721,6 +886,8 @@
 
     function selectChannel(channel) {
         if (channel === currentChannel) return;
+        stopTyping(currentChannel);
+        if (replyTarget && replyTarget.room !== channel) clearReplyTarget();
         currentChannel = channel;
         channelTitle.textContent = channel;
         document.querySelector('.chat-panel').setAttribute('aria-label', `${channel} chat`);
@@ -732,6 +899,7 @@
             else button.removeAttribute('aria-current');
         });
         renderChannelHistory();
+        renderTypingUpdate({ room: channel, people: typingPeopleByChannel.get(channel) || [] });
         messageInput.focus();
         scheduleMarkVisibleMessagesSeen();
     }
@@ -753,8 +921,11 @@
 
     channelButtons.forEach(button => button.addEventListener('click', () => selectChannel(button.dataset.channel)));
     chat.addEventListener('scroll', scheduleMarkVisibleMessagesSeen, { passive: true });
+    messageInput.addEventListener('input', noteTyping);
+    messageInput.addEventListener('blur', () => stopTyping(currentChannel));
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') scheduleMarkVisibleMessagesSeen();
+        else stopTyping(currentChannel);
     });
     document.addEventListener('click', event => {
         if (!event.target.closest('.message-actions')) closeMessageMenus();
@@ -788,6 +959,7 @@
     });
     closeEditDialogButton.addEventListener('click', closeEditDialog);
     cancelEditButton.addEventListener('click', closeEditDialog);
+    cancelReplyButton.addEventListener('click', clearReplyTarget);
     editDialog.addEventListener('close', () => { messageBeingEdited = null; });
     imageButton.addEventListener('click', () => imageInput.click());
     emojiButton.addEventListener('click', () => {
@@ -818,6 +990,7 @@
     form.addEventListener('submit', sendMessage);
     window.addEventListener('offline', () => {
         clearTimeout(retryTimer);
+        stopTyping();
         const previousClient = client;
         client = null;
         connected = false;
@@ -825,6 +998,9 @@
         subscriptions = [];
         updateComposer();
         setStatus('Not connected', 'error');
+        typingPeopleByChannel.forEach((_, room) => typingPeopleByChannel.set(room, []));
+        typingIndicator.hidden = true;
+        typingIndicator.textContent = '';
         showError('You are offline. We’ll reconnect when your internet returns.');
         if (previousClient?.connected) previousClient.disconnect(() => {});
     });
@@ -833,6 +1009,7 @@
     });
     window.addEventListener('beforeunload', () => {
         intentionalClose = true;
+        stopTyping(currentChannel);
         clearTimeout(retryTimer);
         discardRecording = true;
         mediaStream?.getTracks().forEach(track => track.stop());

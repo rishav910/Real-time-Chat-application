@@ -8,10 +8,10 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' blob: https://real-time-chat-application-3njs.onrender.com; media-src 'self' blob: https://real-time-chat-application-3njs.onrender.com http://localhost:8080 http://127.0.0.1:8080; connect-src 'self' https://real-time-chat-application-3njs.onrender.com wss://real-time-chat-application-3njs.onrender.com http://localhost:8080 ws://localhost:8080 http://127.0.0.1:8080 ws://127.0.0.1:8080; object-src 'none'; base-uri 'self'; form-action 'self'">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <title>Chatty — Real-time chat</title>
-    <link rel="stylesheet" href="chat.css?v=message-menu-polish-7">
+    <link rel="stylesheet" href="chat.css?v=typing-visibility-12">
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.1/stomp.min.js" defer></script>
-    <script src="chat.js?v=message-menu-polish-7" defer></script>
+    <script src="chat.js?v=typing-visibility-12" defer></script>
 </head>
 <body>
 <main id="nameGate" class="entry-screen">
@@ -44,7 +44,10 @@
             <div class="header-room"><span class="room-hash" aria-hidden="true">#</span><h1>general</h1></div>
             <div class="header-identity"><strong id="currentName" class="current-name"></strong></div>
             <div class="header-actions">
-                <div class="header-status"><span class="status-dot" id="statusDot"></span><span id="connectionStatus" role="status" aria-live="polite">Connecting…</span></div>
+                <div class="header-status-stack">
+                    <div class="header-status"><span class="status-dot" id="statusDot"></span><span id="connectionStatus" role="status" aria-live="polite">Connecting…</span></div>
+                    <div id="typingIndicator" class="typing-indicator" role="status" aria-live="polite" hidden></div>
+                </div>
                 <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme"><span id="themeIcon" aria-hidden="true">☾</span></button>
             </div>
         </header>
@@ -60,6 +63,11 @@
             <div class="composer-inner">
                 <form id="composer" class="composer">
                     <label for="messageInput" class="visually-hidden">Write a message</label>
+                    <div id="replyPreview" class="reply-preview" hidden>
+                        <div class="reply-preview-accent" aria-hidden="true"></div>
+                        <div class="reply-preview-copy"><strong id="replyPreviewName"></strong><span id="replyPreviewText"></span></div>
+                        <button id="cancelReply" class="reply-preview-close" type="button" aria-label="Cancel reply">×</button>
+                    </div>
                     <div id="voicePreview" class="voice-preview" hidden>
                         <audio id="voicePreviewPlayer" controls preload="metadata" aria-label="Preview voice message"></audio>
                         <time id="voicePreviewDuration" class="voice-preview-duration" aria-label="Recorded duration">0:00</time>

@@ -15,6 +15,8 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -26,6 +28,8 @@ public class ChatController {
     private final ConcurrentHashMap<String, OwnedMessage> ownedMessages = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Participant> participants = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ConcurrentHashMap<String, String>> seenBy = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ConcurrentHashMap<String, Participant>> typingByRoom = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> typingRoomBySession = new ConcurrentHashMap<>();
 
     public ChatController(SimpMessagingTemplate messagingTemplate, MessageRateLimiter rateLimiter, UploadService uploadService) {
         this.messagingTemplate = messagingTemplate;
@@ -54,6 +58,21 @@ public class ChatController {
         message.setSender(message.getSender().trim());
         message.setContent(message.getContent() == null ? "" : message.getContent().trim());
         message.setAttachmentName(message.getAttachmentName() == null ? null : message.getAttachmentName().trim());
+        String replyToMessageId = message.getReplyToMessageId();
+        if (replyToMessageId != null) {
+            OwnedMessage repliedTo = ownedMessages.get(replyToMessageId);
+            if (repliedTo == null || !repliedTo.room().equals(message.getRoom())) {
+                message.setReplyToMessageId(null);
+                message.setReplyToSender(null);
+                message.setReplyToContent(null);
+            } else {
+                message.setReplyToSender(repliedTo.message().getSender());
+                message.setReplyToContent(replyPreview(repliedTo));
+            }
+        } else {
+            message.setReplyToSender(null);
+            message.setReplyToContent(null);
+        }
         message.setTimestamp(Instant.now());
         ownedMessages.put(message.getMessageId(), new OwnedMessage(message.getRoom(), headers.getSessionId(), message, message.getTimestamp()));
         pruneOwnedMessages();
@@ -91,6 +110,25 @@ public class ChatController {
         String sender = request.sender().trim();
         if (clientId.isBlank() || clientId.length() > 64 || sender.isBlank() || sender.length() > 32) return;
         participants.put(headers.getSessionId(), new Participant(clientId, sender));
+        typingByRoom.keySet().forEach(this::publishTyping);
+    }
+
+    @MessageMapping("/typing")
+    public void updateTyping(TypingRequest request, SimpMessageHeaderAccessor headers) {
+        if (request == null || !isSupportedRoom(request.room())) return;
+        String sessionId = headers == null ? null : headers.getSessionId();
+        if (sessionId == null || sessionId.isBlank()) return;
+        Participant participant = participants.get(sessionId);
+        if (participant == null) return;
+
+        if (request.typing()) {
+            String previousRoom = typingRoomBySession.put(sessionId, request.room());
+            if (previousRoom != null && !previousRoom.equals(request.room())) removeTypingSession(previousRoom, sessionId);
+            ConcurrentHashMap<String, Participant> typers = typingByRoom.computeIfAbsent(request.room(), ignored -> new ConcurrentHashMap<>());
+            if (typers.putIfAbsent(sessionId, participant) == null) publishTyping(request.room());
+        } else if (typingRoomBySession.remove(sessionId, request.room())) {
+            removeTypingSession(request.room(), sessionId);
+        }
     }
 
     @MessageMapping("/markSeen")
@@ -100,7 +138,8 @@ public class ChatController {
         Participant participant = participants.get(sessionId);
         OwnedMessage owned = ownedMessages.get(request.messageId());
         if (participant == null || owned == null || owned.deleted() || !owned.room().equals(request.room())
-                || owned.sessionId().equals(sessionId)) return;
+                || owned.sessionId().equals(sessionId)
+                || participant.name().equalsIgnoreCase(owned.message().getSender())) return;
         ConcurrentHashMap<String, String> readers = seenBy.computeIfAbsent(request.messageId(), ignored -> new ConcurrentHashMap<>());
         if (readers.putIfAbsent(sessionId, participant.name()) == null) publishSeen(request.messageId(), owned.room());
     }
@@ -108,6 +147,8 @@ public class ChatController {
     @EventListener
     public void onDisconnect(SessionDisconnectEvent event) {
         participants.remove(event.getSessionId());
+        String typingRoom = typingRoomBySession.remove(event.getSessionId());
+        if (typingRoom != null) removeTypingSession(typingRoom, event.getSessionId());
         seenBy.forEach((messageId, readers) -> {
             if (readers.remove(event.getSessionId()) != null) {
                 OwnedMessage owned = ownedMessages.get(messageId);
@@ -115,6 +156,38 @@ public class ChatController {
                 if (readers.isEmpty()) seenBy.remove(messageId, readers);
             }
         });
+    }
+
+    private void removeTypingSession(String room, String sessionId) {
+        ConcurrentHashMap<String, Participant> typers = typingByRoom.get(room);
+        if (typers == null || typers.remove(sessionId) == null) return;
+        if (typers.isEmpty()) typingByRoom.remove(room, typers);
+        publishTyping(room);
+    }
+
+    private void publishTyping(String room) {
+        ConcurrentHashMap<String, Participant> typers = typingByRoom.get(room);
+        Map<String, TypingPerson> peopleByClient = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        if (typers != null) {
+            typers.values().forEach(participant -> peopleByClient.putIfAbsent(participant.clientId(),
+                    new TypingPerson(participant.clientId(), participant.name())));
+        }
+        messagingTemplate.convertAndSend("/topic/typing/" + room,
+                new TypingUpdate("typing", room, List.copyOf(peopleByClient.values())));
+    }
+
+    private boolean isSupportedRoom(String room) {
+        return "general".equals(room) || "random".equals(room) || "introductions".equals(room);
+    }
+
+    private String replyPreview(OwnedMessage repliedTo) {
+        if (repliedTo.deleted()) return "This message was deleted";
+        ChatMessage original = repliedTo.message();
+        String content = original.getContent();
+        if (content != null && !content.isBlank()) return content.length() <= 240 ? content : content.substring(0, 237) + "…";
+        if (original.getAttachmentType() != null && original.getAttachmentType().startsWith("image/")) return "Photo";
+        if (original.getAttachmentType() != null && original.getAttachmentType().startsWith("audio/")) return "Voice message";
+        return "Message";
     }
 
     private void publishSeen(String messageId, String room) {
@@ -151,6 +224,9 @@ public class ChatController {
         edited.setAttachmentUrl(original.getAttachmentUrl());
         edited.setAttachmentType(original.getAttachmentType());
         edited.setAttachmentName(original.getAttachmentName());
+        edited.setReplyToMessageId(original.getReplyToMessageId());
+        edited.setReplyToSender(original.getReplyToSender());
+        edited.setReplyToContent(original.getReplyToContent());
         edited.setRoom(original.getRoom());
         edited.setTimestamp(original.getTimestamp());
         edited.setEdited(true);
@@ -184,7 +260,13 @@ public class ChatController {
 
     public record SeenRequest(String messageId, String room) {}
 
+    public record TypingRequest(String room, boolean typing) {}
+
     public record SeenUpdate(String type, String messageId, String room, List<String> seenBy) {}
+
+    public record TypingUpdate(String type, String room, List<TypingPerson> people) {}
+
+    public record TypingPerson(String clientId, String name) {}
 
     private record Participant(String clientId, String name) {}
 
